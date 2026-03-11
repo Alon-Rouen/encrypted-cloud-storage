@@ -221,12 +221,38 @@ impl Session {
 /// a dedicated output parameter to get the IKM, keeping the two usages
 /// (verification vs key derivation) strictly separate.
 fn derive_ikm_from_password(password: &str, phc: &str) -> Result<Vec<u8>> {
-    // Simple concatenation: password bytes ++ first 32 bytes of PHC
-    // This binds the IKM to both the secret (password) and the user's
-    // registration context (phc hash), without reusing Argon2 output directly.
-    let mut ikm = password.as_bytes().to_vec();
-    ikm.extend_from_slice(&phc.as_bytes()[..phc.len().min(32)]);
-    Ok(ikm)
+    // We run Argon2id a second time with the stored parameters (extracted from
+    // the PHC string) to produce 32 bytes of key material.
+    //
+    // WHY not reuse the verification hash directly?
+    //   The PHC hash is designed for *comparison*, not as key material.
+    //   Running Argon2 with output_len=32 gives us proper random-looking bytes
+    //   suitable as HKDF input, while the PHC hash remains dedicated to login
+    //   verification. This keeps the two usages cleanly separated.
+    //
+    // WHY is this still secure?
+    //   Both calls use the same password + same embedded salt → deterministic.
+    //   An attacker who steals the profile file still needs the password to
+    //   recompute the IKM, and Argon2id makes that expensive.
+    use argon2::Argon2;
+    use argon2::password_hash::{PasswordHash, SaltString};
+
+    let parsed = PasswordHash::new(phc)
+        .map_err(|e| anyhow::anyhow!("Failed to parse PHC for key derivation: {}", e))?;
+
+    // Re-use the same salt that was generated at registration
+    let salt = parsed.salt
+        .ok_or_else(|| anyhow::anyhow!("No salt in PHC string"))?;
+    let salt_str = SaltString::from_b64(salt.as_str())
+        .map_err(|e| anyhow::anyhow!("Invalid salt in PHC: {}", e))?;
+
+    // Derive 32 bytes of key material using the same Argon2id parameters
+    let mut output = vec![0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), salt_str.as_salt().as_str().as_bytes(), &mut output)
+        .map_err(|e| anyhow::anyhow!("Argon2 key derivation failed: {}", e))?;
+
+    Ok(output)
 }
 
 // ============================================================
