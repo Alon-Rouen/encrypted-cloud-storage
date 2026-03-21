@@ -4,6 +4,8 @@ Final project for the Cryptography Engineering course (WS 2025/26).
 
 The goal was to build a system where a client can store and retrieve files from an untrusted server — meaning the server should learn nothing useful even if it reads everything it stores. The report (`report_final.pdf`) goes into more detail on the design choices.
 
+---
+
 ## What it does
 
 - **register** — creates a user profile with an Argon2id password hash and a random HKDF salt
@@ -14,18 +16,23 @@ The goal was to build a system where a client can store and retrieve files from 
 
 The server (simulated as a local directory) only ever sees random UUIDs and encrypted blobs. Filenames are hidden inside an encrypted manifest (`manifest.enc`).
 
+---
+
 ## Crypto stack
 
 | Primitive | Purpose |
+|---|---|
 | Argon2id | Password hashing — memory-hard, resistant to GPU brute-force |
 | HKDF-SHA256 | Derives two independent keys from the Argon2 output |
 | AES-256-GCM | Authenticated encryption for file contents and the manifest |
 
 Two separate keys are derived via HKDF: `file_key` for file contents and `meta_key` for the manifest. They use different info labels so compromising one tells you nothing about the other.
 
+---
+
 ## Build & run
 
-bash
+```bash
 cargo build --release
 cargo test
 
@@ -46,11 +53,15 @@ cargo test
 
 # End-to-end demo (no setup needed)
 ./target/release/ecs demo
+```
 
 On Windows use `ecs.exe` instead of `ecs`.
 
+---
+
 ## Project structure
 
+```
 src/
 ├── main.rs              CLI (clap)
 ├── crypto/
@@ -63,14 +74,20 @@ src/
 └── client/
     ├── profile.rs       User profile (persisted)
     └── session.rs       register / login / upload / download / delete
+```
+
+---
 
 ## Report
 
 `report_final.pdf` covers the design in more depth: threat model, explanation of the 5 most important functions (what they do, how they work, why they're secure), and known limitations.
 
+---
+
 ## Tests
 
-bash
+```bash
 cargo test
+```
 
 26 tests across all modules. The most interesting one is `vault_contains_no_plaintext` — it uploads a file and then scans every raw byte in the vault directory to assert that neither the file content nor the filename appear anywhere in cleartext.
